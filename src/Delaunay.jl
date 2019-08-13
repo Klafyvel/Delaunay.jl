@@ -283,6 +283,7 @@ struct Map{T<:Real}
 end
 
 function find_base_tangente(points, triangle_left, triangle_right)
+    @debug "Starting find_base_tangente routine."
     prev_triangle_left = prev(triangle_left)
     prev_triangle_right = prev(triangle_right)
     there_is_a_point_below_left_next = is_strictly_right_of(
@@ -298,6 +299,8 @@ function find_base_tangente(points, triangle_left, triangle_right)
         points, triangle_left.v1, triangle_right.v1, prev_triangle_right.v1
     )
     while there_is_a_point_below_left_next || there_is_a_point_below_left_prev || there_is_a_point_below_right_next || there_is_a_point_below_right_prev
+        @debug "Current tangente" triangle_left.v1 triangle_right.v1
+        @debug "Working on" prev_triangle_left triangle_left prev_triangle_right triangle_right
         if there_is_a_point_below_left_next
             triangle_left, prev_triangle_left = next(triangle_left), triangle_left
         elseif there_is_a_point_below_left_prev
@@ -348,6 +351,7 @@ function find_base_tangente(points, triangle_left, triangle_right)
         prev_triangle_left = prev(triangle_left)
         left_prev_aligned = is_aligned(points, triangle_right.v1, triangle_left.v1, prev_triangle_left.v1)
     end
+    @debug "End of find_base_tangente routine."
     triangle_left, triangle_right
 end
 
@@ -564,6 +568,7 @@ function triangulate!(m, first=1, last=-1)
         push!(m.triangles, base_triangle)
         next!(base_triangle, base_triangle_left)
         prev!(base_triangle, prev(base_triangle_right))
+        lower_triangle = base_triangle
 
         upper_triangle = base_triangle.t3
         push!(m.triangles, upper_triangle)
@@ -677,31 +682,8 @@ function triangulate!(m, first=1, last=-1)
             end
         end
 
-
-        while !is_hull(triangle_left_left)
-            if is_hull(triangle_left_left.t1)
-                triangle_left_left = triangle_left_left.t1
-            elseif is_hull(triangle_left_left.t2)
-                    triangle_left_left = triangle_left_left.t2
-            elseif is_hull(triangle_left_left.t3)
-                triangle_left_left = triangle_left_left.t3
-            else
-                triangle_left_left = triangle_left_left.t1
-            end
-        end
-        while !is_hull(triangle_right_right)
-            if is_hull(triangle_right_right.t1)
-                triangle_right_right = triangle_right_right.t1
-            elseif is_hull(triangle_right_right.t2)
-                triangle_right_right = triangle_right_right.t2
-            elseif is_hull(triangle_right_right.t3)
-                triangle_right_right = triangle_right_right.t3
-            else
-                triangle_right_right = triangle_right_right.t2
-            end
-        end
         @debug to_geogebra(m)
-        triangle_left_left, triangle_right_right
+        lower_triangle, upper_triangle
     end
 
 end
@@ -714,6 +696,7 @@ end
 
 function Map(height::Number, width::Number, nb_points::Int; res::Float64=0.5)
     points = sortslices([rand(nb_points) .* width rand(nb_points) .* height], dims=1)
+    @debug "Generating from" points
     delaunay = SimpleGraph(nb_points)
     m = Map(delaunay, points, Set{Triangle}())
     triangulate!(m)

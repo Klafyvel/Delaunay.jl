@@ -321,7 +321,7 @@ end
 end
 
 @testset "I tested every corner case I could think of, but just in case, let's generate 100 graphs and test if they are delaunay 🙈" begin
-    for _ in 1:100
+    for i in 1:100
         m = Map(20, 20, 10)
         delaunay = Delaunay.is_delaunay(m)
         @test delaunay == true
