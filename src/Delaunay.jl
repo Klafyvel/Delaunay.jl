@@ -39,6 +39,14 @@ function is_strictly_right_of(points, a::Int, b::Int, c::Int)
     is_strictly_left_of(points, b, a, c)
 end
 
+"Compute the intersection between a + λ * dir_a and b + γ * dir_b"
+function line_intersection(a::Array{<:Real,1}, dir_a::Array{<:Real,1}, b::Array{<:Real,1}, dir_b::Array{<:Real,1})
+    λ = [-dir_a dir_b]\(a .- b)
+    a .+ λ[1] .* dir_a
+end
+
+line_intersection(points::Array{<:Real,1}, a::Int, b::Int, c::Int, d::Int) = line_intersection(points[a,:], points[b,:], points[c,:], points[d,:])
+
 function circumcenter(points, a, b, c)
     xa = points[a, 1]
     ya = points[a, 2]
@@ -52,7 +60,7 @@ function circumcenter(points, a, b, c)
     ]
     B = 1/2 * [xa-xc;ya-yc]
     λ = M\B
-    1/2 * (points[a,:] + points[b,:]) + λ[1] * [ya-yb; xb-xa], 1/2 * (points[b,:] + points[c,:]) + λ[2] * [yb-yc; xc-xb]
+    1/2 * (points[a,:] + points[b,:]) + λ[1] * [ya-yb; xb-xa]
 end
 
 "True if p is in circumcircle a b c. (a,b,c ccw)"
@@ -105,6 +113,8 @@ function Triangle(points, a::Int, b::Int, c::Int)
 end
 
 Base.show(io::IO, t::Triangle) = print(io, "Triangle($(t.v1), $(t.v2), $(t.v3))")
+
+circumcenter(points, triangle::Triangle) = circumcenter(points, triangle.v1, triangle.v2, triangle.v3)
 
 function is_hull(triangle)
     triangle.v3 == 0
@@ -276,10 +286,14 @@ function delete_left_triangles!(map, to_be_deleted, upper_triangle)
     @debug "Left deletion routine is over."
 end
 
-struct Map{T<:Real}
+mutable struct Map{T<:Real}
     delaunay::SimpleGraph
     delaunay_points::Array{T,2}
+    voronoi::SimpleGraph
+    voronoi_points::Array{T,2}
     triangles::Set{Triangle}
+    width::Real
+    height::Real
 end
 
 function find_base_tangente(points, triangle_left, triangle_right)
@@ -688,9 +702,65 @@ function triangulate!(m, first=1, last=-1)
 
 end
 
+function project_bissection_on_nearest_border(points::Array{<:Real,2}, triangle::Triangle, width::Real, height::Real)
+    center = (points[triangle.v1,:] .+ points[triangle.v2,:]) ./ 2
+    direction = [0 -1;1 0] * (points[triangle.v1,:] .- points[triangle.v2,:])
+    sort([
+            line_intersection(center, direction, [0;0], [0;height]),
+            line_intersection(center, direction, [width;0], [0;height]),
+            line_intersection(center, direction, [0;0], [width;0]),
+            line_intersection(center, direction, [0;height], [width;0])
+        ],
+        lt=(x,y)-> norm(center .- x) < norm(center .- y)
+    )[1]
+end
+
+
+function create_voronoi_from_triangles!(map::Map)
+    processed = Set{Triangle}()
+    stack = Stack{Triangle}()
+    indices = Dict()
+    for (i,triangle) in enumerate(map.triangles)
+        push!(indices, triangle => i)
+    end
+    push!(stack, iterate(indices)[1].first)
+    map.voronoi_points = zeros(Float64, length(indices), 2)
+    map.voronoi = SimpleGraph(length(indices))
+    while !isempty(stack)
+        triangle = pop!(stack)
+        push!(processed, triangle)
+        index = get(indices, triangle, 0)
+        map.voronoi_points[index,:] = if is_hull(triangle)
+            project_bissection_on_nearest_border(map.delaunay_points, triangle, map.width, map.height)
+        else
+            circumcenter(map.delaunay_points, triangle)
+        end
+
+        if triangle.t1 ∉ processed
+            if !(is_hull(triangle) && is_hull(triangle.t1))
+                add_edge!(map.voronoi, index, get(indices, triangle.t1, 0))
+            end
+            push!(stack, triangle.t1)
+        end
+        if triangle.t2 ∉ processed
+            if !(is_hull(triangle) && is_hull(triangle.t2))
+                add_edge!(map.voronoi, index, get(indices, triangle.t2, 0))
+            end
+            push!(stack, triangle.t2)
+        end
+        if triangle.t3 ∉ processed
+            if !(is_hull(triangle) && is_hull(triangle.t3))
+                add_edge!(map.voronoi, index, get(indices, triangle.t3, 0))
+            end
+            push!(stack, triangle.t3)
+        end
+    end
+end
+
 function Map(points::Array{T,2}) where T <: Real
-    m = Map(SimpleGraph(div(length(points),2)), sortslices(points, dims=1), Set{Triangle}())
+    m = Map(SimpleGraph(div(length(points),2)), sortslices(points, dims=1), SimpleGraph(), zeros(0,0), Set{Triangle}(), maximum(points[:,1]), maximum(points[:,2]))
     left,right = triangulate!(m)
+    create_voronoi_from_triangles!(m)
     m
 end
 
@@ -698,45 +768,77 @@ function Map(height::Number, width::Number, nb_points::Int; res::Float64=0.5)
     points = sortslices([rand(nb_points) .* width rand(nb_points) .* height], dims=1)
     @debug "Generating from" points
     delaunay = SimpleGraph(nb_points)
-    m = Map(delaunay, points, Set{Triangle}())
+    m = Map(delaunay, points, SimpleGraph(), zeros(0,0), Set{Triangle}(), width, height)
     triangulate!(m)
+    create_voronoi_from_triangles!(m)
     m
 end
 
 
-function plot_points(points)
-    plot(
-        points[:,1], points[:,2],
-        marker=(20, 0.2, :orange), line=:scatter,
-        series_annotations=collect(map(string, 1:length(points[:,1])))
-    )
+function plot_points(points, type=:delaunay; show_nums=true)
+    plot()
+    plot_points!(points, type, show_nums=show_nums)
 end
 
-function plot_points!(points)
+function plot_points!(points, type=:delaunay; show_nums=true)
+    marker = if type == :delaunay
+        if show_nums
+            (:circle, 20, 0.2, :orange)
+        else
+            (:circle, 100, 1, :red)
+        end
+    else
+        if show_nums
+            (:circle, 10, 0.2, :blue)
+        else
+            (:circle, 100, 1, :blue)
+        end
+    end
+    if show_nums
+        plot!(
+            points[:,1], points[:,2],
+            marker=marker, line=:scatter,
+            series_annotations=collect(map(string, 1:length(points[:,1]))),
+            aspect_ratio=:equal
+        )
+    else
+        plot!(
+            points[:,1], points[:,2],
+            marker=marker, line=:scatter, aspect_ratio=:equal
+        )
+    end
+end
+
+function plot_map(m; show_nums=true, window=:fit)
+    plot()
+    plot_map!(m, show_nums=show_nums, window=window)
+end
+function plot_map!(m; show_nums=true, window=:fit)
+    if window == :full
+        plot!(
+            aspect_ratio=:equal
+        )
+    else
+        plot!(
+            aspect_ratio=:equal,
+            xlims=(0,m.width),
+            ylims=(0,m.height),
+        )
+    end
     plot!(
-        points[:,1], points[:,2],
-        marker=(20, 0.2, :orange), line=:scatter,
-        series_annotations=collect(map(string, 1:length(points[:,1])))
-    )
-end
-
-function plot_map(m)
-    plot(
         hcat(map(x->[m.delaunay_points[x.src, 1]; m.delaunay_points[x.dst, 1]],edges(m.delaunay))...),
         hcat(map(x->[m.delaunay_points[x.src, 2]; m.delaunay_points[x.dst, 2]],edges(m.delaunay))...),
         color="red",
-        legend=false
+        legend=false,
     )
-    plot_points!(m.delaunay_points)
-end
-function plot_map!(m)
     plot!(
-        hcat(map(x->[m.delaunay_points[x.src, 1]; m.delaunay_points[x.dst, 1]],edges(m.delaunay))...),
-        hcat(map(x->[m.delaunay_points[x.src, 2]; m.delaunay_points[x.dst, 2]],edges(m.delaunay))...),
-        color="red",
-        legend=false
+        hcat(map(x->[m.voronoi_points[x.src, 1]; m.voronoi_points[x.dst, 1]],edges(m.voronoi))...),
+        hcat(map(x->[m.voronoi_points[x.src, 2]; m.voronoi_points[x.dst, 2]],edges(m.voronoi))...),
+        color="blue",
+        legend=false,
     )
-    plot_points!(m.delaunay_points)
+    plot_points!(m.voronoi_points, :voronoi, show_nums=show_nums)
+    plot_points!(m.delaunay_points, show_nums=show_nums)
 end
 
 function to_geogebra(points)
@@ -749,6 +851,7 @@ end
 
 function to_geogebra(map::Map)
     convert_to_ascii(n) = Char(n + 64)
+    n_delaunay = div(length(map.delaunay_points), 2)
     join(
         [
             to_geogebra(map.delaunay_points),
@@ -761,7 +864,13 @@ function to_geogebra(map::Map)
                 "{",
                 join(["Polygone[$(convert_to_ascii(t.v1)), $(convert_to_ascii(t.v2)), $(convert_to_ascii(t.v3))]" for t in map.triangles if !is_hull(t)], ", "),
                 "}"
-            )
+            ),
+            to_geogebra(map.voronoi_points),
+            (*)(
+                "{",
+                join(["Segment[$(convert_to_ascii(e.src+n_delaunay)), $(convert_to_ascii(e.dst+n_delaunay))]" for e in edges(map.voronoi)], ", "),
+                "}"
+            ),
         ],
         "\n"
     )
@@ -787,6 +896,6 @@ function is_delaunay(map)
     result
 end
 
-export Map, to_geogebra
+export Map, to_geogebra, plot_points, plot_points!, plot_map, plot_map!
 
 end
