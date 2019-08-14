@@ -2,6 +2,7 @@ module Delaunay
 
 using Random
 using LightGraphs
+using MetaGraphs
 using Plots
 using LinearAlgebra
 using DataStructures
@@ -163,15 +164,24 @@ replace_comp_t2!(triangle, comp) = replace_comp!(triangle, triangle.t2, comp)
 replace_comp_t3!(triangle, comp) = replace_comp!(triangle, triangle.t3, comp)
 
 
+mutable struct Map{T<:Real}
+    delaunay::MetaGraph
+    delaunay_points::Array{T,2}
+    voronoi::MetaGraph
+    voronoi_points::Array{T,2}
+    width::Real
+    height::Real
+end
+
 "Delete a right set of triangle. `to_be_deleted` must be in the order of which
 candidate choosing algorithm crosses the triangles.
 "
-function delete_right_triangles!(map, to_be_deleted, upper_triangle)
+function delete_right_triangles!(map::Map, map_triangles::Set{Triangle}, to_be_deleted::Deque{Triangle}, upper_triangle::Triangle)
     next_right = next(upper_triangle)
     next_next_right = next(next_right)
     @debug "Starting deletion routine on right."
     for triangle in to_be_deleted
-        pop!(map.triangles, triangle)
+        pop!(map_triangles, triangle)
         @debug "Processing $triangle"
         if triangle == next_right # first iteration of the loop
             @debug "First iteration."
@@ -180,15 +190,15 @@ function delete_right_triangles!(map, to_be_deleted, upper_triangle)
             @debug "Is hull, should be last iteration."
             continue
         elseif triangle.t2 == next_right
-            if triangle.t2 ∈ map.triangles # triangle.t2 was added during last iteration
-                pop!(map.triangles, triangle.t2)
+            if triangle.t2 ∈ map_triangles # triangle.t2 was added during last iteration
+                pop!(map_triangles, triangle.t2)
             end
             @debug "triangle.t2 is current next_right."
             comp_t1 = Triangle(triangle.v3, triangle.v2)
             comp_t3 = Triangle(triangle.v2, triangle.v1)
             @debug "Created $comp_t1 and $comp_t3."
-            push!(map.triangles, comp_t1)
-            push!(map.triangles, comp_t3)
+            push!(map_triangles, comp_t1)
+            push!(map_triangles, comp_t3)
             next!(upper_triangle, comp_t1)
             next!(comp_t1, comp_t3)
             next!(comp_t3, next_next_right)
@@ -198,15 +208,15 @@ function delete_right_triangles!(map, to_be_deleted, upper_triangle)
             next_next_right = comp_t3
             rem_edge!(map.delaunay, triangle.v1, triangle.v3)
         elseif triangle.t3 == next_right
-            if triangle.t3 ∈ map.triangles # triangle.t3 was added during last iteration
-                pop!(map.triangles, triangle.t3)
+            if triangle.t3 ∈ map_triangles # triangle.t3 was added during last iteration
+                pop!(map_triangles, triangle.t3)
             end
             @debug "triangle.t3 is current next_right."
             comp_t2 = Triangle(triangle.v1, triangle.v3)
             comp_t1 = Triangle(triangle.v3, triangle.v2)
             @debug "Created $comp_t1 and $comp_t2."
-            push!(map.triangles, comp_t1)
-            push!(map.triangles, comp_t2)
+            push!(map_triangles, comp_t1)
+            push!(map_triangles, comp_t2)
             next!(upper_triangle, comp_t2)
             next!(comp_t2, comp_t1)
             next!(comp_t1, next_next_right)
@@ -220,19 +230,19 @@ function delete_right_triangles!(map, to_be_deleted, upper_triangle)
         end
     end
     # We might have deleted the next right triangle, especially if it was on hull
-    push!(map.triangles, next(upper_triangle))
+    push!(map_triangles, next(upper_triangle))
     @debug "Right deletion routine is over."
 end
 
 "Delete a left set of triangle. `to_be_deleted` must be in the order of which
 candidate choosing algorithm crosses the triangles.
 "
-function delete_left_triangles!(map, to_be_deleted, upper_triangle)
+function delete_left_triangles!(map::Map, map_triangles::Set{Triangle}, to_be_deleted::Deque{Triangle}, upper_triangle::Triangle)
     prev_left = prev(upper_triangle)
     prev_prev_left = prev(prev_left)
     @debug "Starting deletion routine on left."
     for triangle in to_be_deleted
-        pop!(map.triangles, triangle)
+        pop!(map_triangles, triangle)
         @debug "Processing $triangle"
         if triangle == prev_left # first iteration of the loop
             @debug "First iteration."
@@ -241,15 +251,15 @@ function delete_left_triangles!(map, to_be_deleted, upper_triangle)
             @debug "Is hull, should be last iteration."
             continue
         elseif triangle.t1 == prev_left
-            if triangle.t1 ∈ map.triangles # triangle.t1 was added during last iteration
-                pop!(map.triangles, triangle.t1)
+            if triangle.t1 ∈ map_triangles # triangle.t1 was added during last iteration
+                pop!(map_triangles, triangle.t1)
             end
             @debug "triangle.t1 is current prev_left."
             comp_t3 = Triangle(triangle.v2, triangle.v1)
             comp_t2 = Triangle(triangle.v1, triangle.v3)
             @debug "Created $comp_t2 and $comp_t3."
-            push!(map.triangles, comp_t2)
-            push!(map.triangles, comp_t3)
+            push!(map_triangles, comp_t2)
+            push!(map_triangles, comp_t3)
             replace_comp_t2!(triangle, comp_t2)
             replace_comp_t3!(triangle, comp_t3)
             prev!(upper_triangle, comp_t2)
@@ -259,15 +269,15 @@ function delete_left_triangles!(map, to_be_deleted, upper_triangle)
             prev_prev_left = comp_t3
             rem_edge!(map.delaunay, triangle.v2, triangle.v3)
         elseif triangle.t2 == prev_left
-            if triangle.t2 ∈ map.triangles # triangle.t2 was added during last iteration
-                pop!(map.triangles, triangle.t2)
+            if triangle.t2 ∈ map_triangles # triangle.t2 was added during last iteration
+                pop!(map_triangles, triangle.t2)
             end
             @debug "triangle.t2 is current prev_left."
             comp_t1 = Triangle(triangle.v3, triangle.v2)
             comp_t3 = Triangle(triangle.v2, triangle.v1)
             @debug "Created $comp_t1 and $comp_t3."
-            push!(map.triangles, comp_t1)
-            push!(map.triangles, comp_t3)
+            push!(map_triangles, comp_t1)
+            push!(map_triangles, comp_t3)
             replace_comp_t1!(triangle, comp_t1)
             replace_comp_t3!(triangle, comp_t3)
             prev!(upper_triangle, comp_t3)
@@ -277,15 +287,15 @@ function delete_left_triangles!(map, to_be_deleted, upper_triangle)
             prev_prev_left = comp_t1
             rem_edge!(map.delaunay, triangle.v1, triangle.v3)
         else # triangle.t3 == prev_left
-            if triangle.t3 ∈ map.triangles # triangle.t3 was added during last iteration
-                pop!(map.triangles, triangle.t3)
+            if triangle.t3 ∈ map_triangles # triangle.t3 was added during last iteration
+                pop!(map_triangles, triangle.t3)
             end
             @debug "triangle.t3 is current prev_left."
             comp_t2 = Triangle(triangle.v1, triangle.v3)
             comp_t1 = Triangle(triangle.v3, triangle.v2)
             @debug "Created $comp_t1 and $comp_t2."
-            push!(map.triangles, comp_t1)
-            push!(map.triangles, comp_t2)
+            push!(map_triangles, comp_t1)
+            push!(map_triangles, comp_t2)
             replace_comp_t1!(triangle, comp_t1)
             replace_comp_t2!(triangle, comp_t2)
             prev!(upper_triangle, comp_t1)
@@ -297,18 +307,8 @@ function delete_left_triangles!(map, to_be_deleted, upper_triangle)
         end
     end
     # We might have deleted the next right triangle, especially if it was on hull
-    push!(map.triangles, prev(upper_triangle))
+    push!(map_triangles, prev(upper_triangle))
     @debug "Left deletion routine is over."
-end
-
-mutable struct Map{T<:Real}
-    delaunay::SimpleGraph
-    delaunay_points::Array{T,2}
-    voronoi::SimpleGraph
-    voronoi_points::Array{T,2}
-    triangles::Set{Triangle}
-    width::Real
-    height::Real
 end
 
 function find_base_tangente(points, triangle_left, triangle_right)
@@ -523,7 +523,7 @@ function _choose_candidate(points, base_left, base_right, left_candidate, right_
     end
 end
 
-function triangulate!(m, first=1, last=-1)
+function triangulate!(m, map_triangles=Set{Triangle}(), first=1, last=-1)
     if last == -1
         last = div(length(m.delaunay_points), 2)
     end
@@ -533,8 +533,8 @@ function triangulate!(m, first=1, last=-1)
         @debug "Triangulate on 2 vertices : $first - $last."
         add_edge!(m.delaunay, first, last)
         t = Triangle(first, last)
-        push!(m.triangles, t)
-        push!(m.triangles, t.t3)
+        push!(map_triangles, t)
+        push!(map_triangles, t.t3)
         @debug "Created $t."
         @debug to_geogebra(m, :novoronoi)
         t.t3, t
@@ -545,10 +545,10 @@ function triangulate!(m, first=1, last=-1)
             add_edge!(m.delaunay, first+1, last)
             add_edge!(m.delaunay, last, first)
             t = Triangle(m.delaunay_points, first, first+1, last)
-            push!(m.triangles, t)
-            push!(m.triangles, t.t1)
-            push!(m.triangles, t.t2)
-            push!(m.triangles, t.t3)
+            push!(map_triangles, t)
+            push!(map_triangles, t.t1)
+            push!(map_triangles, t.t2)
+            push!(map_triangles, t.t3)
             @debug "Created $t."
             @debug to_geogebra(m, :novoronoi)
             if t.v2 < t.v3
@@ -565,10 +565,10 @@ function triangulate!(m, first=1, last=-1)
             next!(t_last, t_last.t3)
             next!(t_last.t3, t_first.t3)
             next!(t_first.t3, t_first)
-            push!(m.triangles, t_first)
-            push!(m.triangles, t_first.t3)
-            push!(m.triangles, t_last)
-            push!(m.triangles, t_last.t3)
+            push!(map_triangles, t_first)
+            push!(map_triangles, t_first.t3)
+            push!(map_triangles, t_last)
+            push!(map_triangles, t_last.t3)
             @debug "Created $t_first and $t_last."
             @debug to_geogebra(m, :novoronoi)
             if m.delaunay_points[first, 1] < m.delaunay_points[first+1, 1] # vertical line
@@ -580,8 +580,8 @@ function triangulate!(m, first=1, last=-1)
 
     else
         mid = div(first + last, 2)
-        triangle_left_left, triangle_left_right = triangulate!(m, first, mid)
-        triangle_right_left, triangle_right_right = triangulate!(m, mid+1, last)
+        triangle_left_left, triangle_left_right = triangulate!(m, map_triangles, first, mid)
+        triangle_right_left, triangle_right_right = triangulate!(m, map_triangles, mid+1, last)
 
         @debug "Triangulate on $(last - first + 1) vertices : $first to $last."
 
@@ -594,13 +594,13 @@ function triangulate!(m, first=1, last=-1)
 
         # Reminder : for 2edges triangles, we force v1 -> v2 to be clockwise
         base_triangle = Triangle(base_right, base_left)
-        push!(m.triangles, base_triangle)
+        push!(map_triangles, base_triangle)
         next!(base_triangle, base_triangle_left)
         prev!(base_triangle, prev(base_triangle_right))
         lower_triangle = base_triangle
 
         upper_triangle = base_triangle.t3
-        push!(m.triangles, upper_triangle)
+        push!(map_triangles, upper_triangle)
         next!(upper_triangle, triangle_right)
         prev!(upper_triangle, triangle_left)
 
@@ -646,12 +646,12 @@ function triangulate!(m, first=1, last=-1)
                 new_vertex = 0
 
                 if chosen == :left
-                    delete_left_triangles!(m, to_be_deleted, upper_triangle)
+                    delete_left_triangles!(m, map_triangles, to_be_deleted, upper_triangle)
                     triangle = prev(upper_triangle)
                     # Now we are sure that `triangle` is on hull.
                     new_vertex = triangle.v1
                 else
-                    delete_right_triangles!(m, to_be_deleted, upper_triangle)
+                    delete_right_triangles!(m, map_triangles, to_be_deleted, upper_triangle)
                     triangle = next(upper_triangle)
                     # Now we are sure that `triangle` is on hull.
                     new_vertex = triangle.v2
@@ -712,7 +712,7 @@ function triangulate!(m, first=1, last=-1)
         end
 
         @debug to_geogebra(m, :novoronoi)
-        lower_triangle, upper_triangle
+        lower_triangle, upper_triangle, map_triangles
     end
 
 end
@@ -730,16 +730,16 @@ function project_bissection_on_nearest_border(points::Array{<:Real,2}, triangle:
     )[1]
 end
 
-function create_voronoi_from_triangles!(map::Map)
+function create_voronoi_from_triangles!(map::Map, map_triangles::Set{Triangle})
     processed = Set{Triangle}()
     stack = Stack{Triangle}()
     indices = Dict()
-    for (i,triangle) in enumerate(map.triangles)
+    for (i,triangle) in enumerate(map_triangles)
         push!(indices, triangle => i)
     end
     push!(stack, iterate(indices)[1].first)
     map.voronoi_points = zeros(Float64, length(indices), 2)
-    map.voronoi = SimpleGraph(length(indices))
+    map.voronoi = MetaGraph(length(indices))
     while !isempty(stack)
         triangle = pop!(stack)
         push!(processed, triangle)
@@ -749,42 +749,36 @@ function create_voronoi_from_triangles!(map::Map)
         else
             max.([0; 0], min.([map.width; map.height], circumcenter(map.delaunay_points, triangle)))
         end
-
-        if triangle.t1 ∉ processed
-            if !(is_hull(triangle) && is_hull(triangle.t1))
-                add_edge!(map.voronoi, index, get(indices, triangle.t1, 0))
+        for t_neighbour in [triangle.t1, triangle.t2, triangle.t3]
+            if t_neighbour ∉ processed
+                if !(is_hull(triangle) && is_hull(t_neighbour))
+                    t_index = get(indices, t_neighbour, 0)
+                    add_edge!(map.voronoi, index, t_index)
+                    set_prop!(map.voronoi, index, t_index, :delaunay_edge, Edge(triangle.v2, triangle.v3))
+                    set_prop!(map.delaunay, triangle.v2, triangle.v3, :voronoi_edge, Edge(index, t_index))
+                end
+                push!(stack, t_neighbour)
             end
-            push!(stack, triangle.t1)
-        end
-        if triangle.t2 ∉ processed
-            if !(is_hull(triangle) && is_hull(triangle.t2))
-                add_edge!(map.voronoi, index, get(indices, triangle.t2, 0))
-            end
-            push!(stack, triangle.t2)
-        end
-        if triangle.t3 ∉ processed
-            if !(is_hull(triangle) && is_hull(triangle.t3))
-                add_edge!(map.voronoi, index, get(indices, triangle.t3, 0))
-            end
-            push!(stack, triangle.t3)
         end
     end
 end
 
 function Map(points::Array{T,2}) where T <: Real
-    m = Map(SimpleGraph(div(length(points),2)), sortslices(points, dims=1), SimpleGraph(), zeros(0,0), Set{Triangle}(), maximum(points[:,1]), maximum(points[:,2]))
-    left,right = triangulate!(m)
-    create_voronoi_from_triangles!(m)
+    m = Map(MetaGraph(div(length(points),2)), sortslices(points, dims=1), MetaGraph(), zeros(0,0), maximum(points[:,1]), maximum(points[:,2]))
+    map_triangles = Set{Triangle}()
+    triangulate!(m, map_triangles)
+    create_voronoi_from_triangles!(m, map_triangles)
     m
 end
 
 function Map(height::Number, width::Number, nb_points::Int; res::Float64=0.5)
     points = sortslices([rand(nb_points) .* width rand(nb_points) .* height], dims=1)
     @debug "Generating from" points
-    delaunay = SimpleGraph(nb_points)
-    m = Map(delaunay, points, SimpleGraph(), zeros(0,0), Set{Triangle}(), width, height)
-    triangulate!(m)
-    create_voronoi_from_triangles!(m)
+    delaunay = MetaGraph(nb_points)
+    m = Map(delaunay, points, MetaGraph(), zeros(0,0), width, height)
+    map_triangles = Set{Triangle}()
+    triangulate!(m, map_triangles)
+    create_voronoi_from_triangles!(m, map_triangles)
     m
 end
 
