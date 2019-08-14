@@ -180,6 +180,9 @@ function delete_right_triangles!(map, to_be_deleted, upper_triangle)
             @debug "Is hull, should be last iteration."
             continue
         elseif triangle.t2 == next_right
+            if triangle.t2 ∈ map.triangles # triangle.t2 was added during last iteration
+                pop!(map.triangles, triangle.t2)
+            end
             @debug "triangle.t2 is current next_right."
             comp_t1 = Triangle(triangle.v3, triangle.v2)
             comp_t3 = Triangle(triangle.v2, triangle.v1)
@@ -195,6 +198,9 @@ function delete_right_triangles!(map, to_be_deleted, upper_triangle)
             next_next_right = comp_t3
             rem_edge!(map.delaunay, triangle.v1, triangle.v3)
         elseif triangle.t3 == next_right
+            if triangle.t3 ∈ map.triangles # triangle.t3 was added during last iteration
+                pop!(map.triangles, triangle.t3)
+            end
             @debug "triangle.t3 is current next_right."
             comp_t2 = Triangle(triangle.v1, triangle.v3)
             comp_t1 = Triangle(triangle.v3, triangle.v2)
@@ -235,6 +241,9 @@ function delete_left_triangles!(map, to_be_deleted, upper_triangle)
             @debug "Is hull, should be last iteration."
             continue
         elseif triangle.t1 == prev_left
+            if triangle.t1 ∈ map.triangles # triangle.t1 was added during last iteration
+                pop!(map.triangles, triangle.t1)
+            end
             @debug "triangle.t1 is current prev_left."
             comp_t3 = Triangle(triangle.v2, triangle.v1)
             comp_t2 = Triangle(triangle.v1, triangle.v3)
@@ -250,6 +259,9 @@ function delete_left_triangles!(map, to_be_deleted, upper_triangle)
             prev_prev_left = comp_t3
             rem_edge!(map.delaunay, triangle.v2, triangle.v3)
         elseif triangle.t2 == prev_left
+            if triangle.t2 ∈ map.triangles # triangle.t2 was added during last iteration
+                pop!(map.triangles, triangle.t2)
+            end
             @debug "triangle.t2 is current prev_left."
             comp_t1 = Triangle(triangle.v3, triangle.v2)
             comp_t3 = Triangle(triangle.v2, triangle.v1)
@@ -265,6 +277,9 @@ function delete_left_triangles!(map, to_be_deleted, upper_triangle)
             prev_prev_left = comp_t1
             rem_edge!(map.delaunay, triangle.v1, triangle.v3)
         else # triangle.t3 == prev_left
+            if triangle.t3 ∈ map.triangles # triangle.t3 was added during last iteration
+                pop!(map.triangles, triangle.t3)
+            end
             @debug "triangle.t3 is current prev_left."
             comp_t2 = Triangle(triangle.v1, triangle.v3)
             comp_t1 = Triangle(triangle.v3, triangle.v2)
@@ -521,7 +536,7 @@ function triangulate!(m, first=1, last=-1)
         push!(m.triangles, t)
         push!(m.triangles, t.t3)
         @debug "Created $t."
-        @debug to_geogebra(m)
+        @debug to_geogebra(m, :novoronoi)
         t.t3, t
     elseif last - first == 2
         @debug "Triangulate on 3 vertices : $first to $last."
@@ -535,7 +550,7 @@ function triangulate!(m, first=1, last=-1)
             push!(m.triangles, t.t2)
             push!(m.triangles, t.t3)
             @debug "Created $t."
-            @debug to_geogebra(m)
+            @debug to_geogebra(m, :novoronoi)
             if t.v2 < t.v3
                 t.t3, t.t2
             else
@@ -555,7 +570,7 @@ function triangulate!(m, first=1, last=-1)
             push!(m.triangles, t_last)
             push!(m.triangles, t_last.t3)
             @debug "Created $t_first and $t_last."
-            @debug to_geogebra(m)
+            @debug to_geogebra(m, :novoronoi)
             if m.delaunay_points[first, 1] < m.delaunay_points[first+1, 1] # vertical line
                 t_first, t_last.t3
             else # horizontal line
@@ -597,7 +612,7 @@ function triangulate!(m, first=1, last=-1)
         add_edge!(m.delaunay, base_left, base_right)
 
         while !isnothing(right_candidate) || !isnothing(left_candidate)
-            @debug "Base triangle is $base_triangle."
+            @debug "Working with" base_triangle upper_triangle
             right_candidate, delete_triangle_right = find_candidate(right, m, triangle_right, base_left, base_right)
             left_candidate, delete_triangle_left = find_candidate(left, m, triangle_left, base_left, base_right)
 
@@ -696,7 +711,7 @@ function triangulate!(m, first=1, last=-1)
             end
         end
 
-        @debug to_geogebra(m)
+        @debug to_geogebra(m, :novoronoi)
         lower_triangle, upper_triangle
     end
 
@@ -848,9 +863,10 @@ function to_geogebra(points)
     )
 end
 
-function to_geogebra(map::Map)
+function to_geogebra(map::Map, voronoi=:voronoi)
     convert_to_ascii(n) = Char(n + 64)
     n_delaunay = div(length(map.delaunay_points), 2)
+    if voronoi == :voronoi
     join(
         [
             to_geogebra(map.delaunay_points),
@@ -873,6 +889,24 @@ function to_geogebra(map::Map)
         ],
         "\n"
     )
+    else
+    join(
+        [
+            to_geogebra(map.delaunay_points),
+            (*)(
+                "{",
+                join(["Segment[$(convert_to_ascii(e.src)), $(convert_to_ascii(e.dst))]" for e in edges(map.delaunay)], ", "),
+                "}"
+            ),
+            (*)(
+                "{",
+                join(["Polygone[$(convert_to_ascii(t.v1)), $(convert_to_ascii(t.v2)), $(convert_to_ascii(t.v3))]" for t in map.triangles if !is_hull(t)], ", "),
+                "}"
+            ),
+        ],
+        "\n"
+    )
+    end
 end
 
 "Dummy function to test if a Map is delaunay."
