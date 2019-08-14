@@ -715,7 +715,6 @@ function project_bissection_on_nearest_border(points::Array{<:Real,2}, triangle:
     )[1]
 end
 
-
 function create_voronoi_from_triangles!(map::Map)
     processed = Set{Triangle}()
     stack = Stack{Triangle}()
@@ -733,7 +732,7 @@ function create_voronoi_from_triangles!(map::Map)
         map.voronoi_points[index,:] = if is_hull(triangle)
             project_bissection_on_nearest_border(map.delaunay_points, triangle, map.width, map.height)
         else
-            circumcenter(map.delaunay_points, triangle)
+            max.([0; 0], min.([map.width; map.height], circumcenter(map.delaunay_points, triangle)))
         end
 
         if triangle.t1 ∉ processed
