@@ -1,4 +1,4 @@
-module Delaunay
+module DelaunayMaps
 
 using Random
 using LightGraphs
@@ -906,17 +906,16 @@ end
 "Dummy function to test if a Map is delaunay."
 function is_delaunay(map)
     result = true
-    for t in map.triangles
-        if is_hull(t)
-            continue
-        end
-        for p in 1:div(length(map.delaunay_points), 2)
-            if !(p in (t.v1, t.v2, t.v3))
-                ok = !is_in_circumcircle(map.delaunay_points, t.v1, t.v3, t.v2, p)
-                if !ok
-                    @debug "failed on triangle $t point $p"
-                    result = false
-                end
+    for p in vertices(map.delaunay)
+        n = neighbors(map.delaunay, p)
+        for q in vertices(map.delaunay)
+            if q in n
+                continue
+            end
+            ok = !is_in_circumcircle(map.delaunay_points, t.v1, t.v3, t.v2, p)
+            if !ok
+                @debug "failed on triangle $t point $p"
+                result = false
             end
         end
     end
@@ -925,4 +924,4 @@ end
 
 export Map, to_geogebra, plot_points, plot_points!, plot_map, plot_map!
 
-end
+end # module
